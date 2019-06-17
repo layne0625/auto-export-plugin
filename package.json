@@ -10,16 +10,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "lodash": "^4.17.11"
   },
   "devDependencies": {
     "@babel/generator": "^7.4.4",
-    "babel-loader": "^8.0.6",
-    "js-beautify": "^1.10.0",
-    "webpack": "^4.32.2",
-    "webpack-cli": "^3.3.2",
     "@babel/parser": "^7.4.5",
     "@babel/traverse": "^7.4.5",
+    "babel-loader": "^8.0.6",
     "babel-types": "^6.26.0",
-    "chokidar": "^3.0.1"
+    "chokidar": "^3.0.1",
+    "js-beautify": "^1.10.0",
+    "webpack": "^4.32.2",
+    "webpack-cli": "^3.3.2"
   }
 }
