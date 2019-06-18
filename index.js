@@ -111,13 +111,12 @@ class AutoExport {
     const fileName = getFileName(filepath);
     fs.readdir(dirName, {
       encoding: 'utf8',
-      withFileTypes: true
     }, (err, files) => {
       let existIndex = false;
 
       if (!err) {
         files.forEach(file => {
-          if (file.name === 'index.js') {
+          if (file === 'index.js') {
             existIndex = true;
           }
         });
