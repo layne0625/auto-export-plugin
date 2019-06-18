@@ -1,8 +1,7 @@
 const path = require('path')
 const nodeExternals = require('webpack-node-externals')
-const AutoExport = require('./index')
 module.exports = {
-  entry: './entry.js',
+  entry: './index.js',
   target: 'node',
   externals: [nodeExternals()],
   output: {
@@ -10,6 +9,7 @@ module.exports = {
     filename: 'index.js',
     libraryTarget: 'commonjs2'
   },
+  // devtool: 'inline-cheap-source-map',
   module: {
     rules: [
       {
@@ -17,11 +17,6 @@ module.exports = {
         use: 'babel-loader'
       }
     ]
-  },
-  plugins: [
-    new AutoExport({
-      dir: ['constant', 'src']
-    })
-  ]
+  }
 }
 

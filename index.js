@@ -47,15 +47,7 @@ class AutoExport {
     }
 
     this.options = options;
-    const optionIgnoredRegStr = this.options.ignored ? this.options.ignored.toString().slice(1, -1) : '';
-    const ignoredStr = optionIgnoredRegStr ? `${optionIgnoredRegStr}|index` : 'index';
-    this.watcher = chokidar.watch(this.options.dir || 'src', {
-      usePolling: true,
-      ignored: new RegExp(ignoredStr)
-    });
 
-    this.watcher.on('change', _.debounce(this.handleChange.bind(this), 1000))
-      .on('unlink', _.debounce(this.handleDeleteFile.bind(this), 1000));
     this.cacheExportNameMap = {};
   }
 
@@ -236,7 +228,6 @@ class AutoExport {
             self.cacheExportNameMap[filePath] = values;
           }
         }
-
       },
 
       ExportDefaultDeclaration(path) {
@@ -245,7 +236,6 @@ class AutoExport {
             if (oldExportNames.includes(cur.key.name)) {
               return prev;
             }
-
             return [...prev, cur.key.name];
           }, []);
           const allProperties = filtedProperties.concat(Object.values(nameMap));
@@ -302,21 +292,16 @@ class AutoExport {
     return ast;
   }
 
-  apply(compiler) {
+  apply() {
+    const optionIgnoredRegStr = this.options.ignored ? this.options.ignored.toString().slice(1, -1) : '';
+    const ignoredStr = optionIgnoredRegStr ? `${optionIgnoredRegStr}|index` : 'index';
+    this.watcher = chokidar.watch(this.options.dir || 'src', {
+      usePolling: true,
+      ignored: new RegExp(ignoredStr)
+    });
 
-    let isProduct = process.env.NODE_ENV === 'production';
-
-    if (isProduct && compiler.hooks.done) {
-      // webpack4
-      compiler.hooks.done.tap('done', () => {
-        this.watcher.close();
-      });
-    } else if (isProduct) {
-      // < webpack4
-      compiler.plugin('done', () => {
-        this.watcher.close();
-      });
-    }
+    this.watcher.on('change', _.debounce(this.handleChange.bind(this), 1000))
+      .on('unlink', _.debounce(this.handleDeleteFile.bind(this), 1000));
   }
 
 }

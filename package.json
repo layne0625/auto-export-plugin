@@ -1,15 +1,23 @@
 {
-  "name": "webpack-plugin-auto-export",
+  "name": "auto-export-plugin",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "webpack auto export ",
+  "keywords": ["webpack-plugin-auto-export", "auto-export"],
+  "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "webpack --mode=development --progress --color --watch",
-    "build": "rm -rf dist && webpack --mode=production"
+    "build": "rm -rf dist && webpack --mode=production --config webpack.config.pro.js"
   },
-  "author": "",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/layne0625/auto-export-plugin"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "layne_s@163.com",
+  "license": "MIT",
   "dependencies": {
     "lodash": "^4.17.11",
     "@babel/generator": "^7.4.4",
