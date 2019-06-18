@@ -1,13 +1,14 @@
 const path = require('path')
-const AutoExport = require('./auto-export')
-
+const nodeExternals = require('webpack-node-externals')
+const AutoExport = require('./index')
 module.exports = {
-  mode: 'development',
   entry: './index.js',
-  devtool: '',
+  target: 'node',
+  externals: [nodeExternals()],
   output: {
     path: path.resolve(__dirname, 'dist'),
-    filename: 'bundle.js'
+    filename: 'index.js',
+    libraryTarget: 'commonjs2'
   },
   module: {
     rules: [
@@ -18,7 +19,7 @@ module.exports = {
     ]
   },
   plugins: [
-    new AutoExport()
+    new AutoExport({dir: 'constant'})
   ]
 }
 

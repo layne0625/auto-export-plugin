@@ -1,10 +1,7 @@
-import test, { test211 } from './test';
-import homepage, { a, setA, aaa } from "./homepage";
+import test1, { b, aa1, c } from "./test1";
 export default {
-  test211,
-  test,
-  a,
-  setA,
-  aaa,
-  homepage
+  b,
+  aa1,
+  c,
+  test1
 };
