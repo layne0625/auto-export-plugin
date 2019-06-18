@@ -1,8 +1,11 @@
 {
   "name": "auto-export-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "webpack auto export ",
-  "keywords": ["webpack-plugin-auto-export", "auto-export"],
+  "keywords": [
+    "webpack-plugin-auto-export",
+    "auto-export"
+  ],
   "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
