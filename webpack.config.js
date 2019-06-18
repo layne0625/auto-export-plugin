@@ -19,7 +19,7 @@ module.exports = {
     ]
   },
   plugins: [
-    new AutoExport({dir: 'constant'})
+    new AutoExport({dir: ['constant', 'src']})
   ]
 }
 
