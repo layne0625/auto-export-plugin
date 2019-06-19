@@ -1,5 +1,9 @@
-import test from './test'
-
+import { AAA1, a2 } from "./test";
+import test3, { AAA, BAS } from "./test3";
 export default {
-  test
-}
+  AAA1,
+  a2,
+  test3,
+  AAA,
+  BAS
+};

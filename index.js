@@ -47,57 +47,83 @@ class AutoExport {
     }
 
     this.options = options;
-
+    this.isWatching = false // 是否watch模式
+    this.watcher = null
     this.cacheExportNameMap = {};
+    this.compileHasError = false
   }
 
   handleChange(pathname, stats) {
-    // 运行环境目录下
-    console.log('\x1b[34m auto export compiling ... \x1b[0m');
-    const absolutePath = path.resolve(pathname);
-    this.autoWriteIndex(absolutePath);
+    if (!this.compileHasError) {
+      // 运行环境目录下
+      console.log('\x1b[34m auto export compiling ... \x1b[0m');
+      const absolutePath = path.resolve(pathname);
+      this.autoWriteIndex(absolutePath);
+    }
   }
 
   handleDeleteFile(pathname) {
-    console.log('\x1b[34m auto export compiling ... \x1b[0m');
-    const absolutePath = path.resolve(pathname);
-    this.autoWriteIndex(absolutePath, true);
+    if (!this.compileHasError) {
+      console.log('\x1b[34m auto export compiling ... \x1b[0m');
+      const absolutePath = path.resolve(pathname);
+      this.autoWriteIndex(absolutePath, true);
+    }
+  }
+
+  init(stats) {
+    this.compileHasError = stats.hasErrors()
+    if (this.isWatching && !this.watcher && !this.compileHasError) {
+      const optionIgnoredRegStr = this.options.ignored ? this.options.ignored.toString().slice(1, -1) : '';
+      const ignoredStr = optionIgnoredRegStr ? `${optionIgnoredRegStr}|index` : 'index';
+      this.watcher = chokidar.watch(this.options.dir || 'src', {
+        usePolling: true,
+        ignored: new RegExp(ignoredStr)
+      });
+
+      this.watcher.on('change', _.debounce(this.handleChange.bind(this), 1000))
+        .on('unlink', _.debounce(this.handleDeleteFile.bind(this), 1000));
+    }
   }
 
   getExportNames(filename) {
     const ast = this.getAst(filename);
     let exportNameMap = {};
-    traverse(ast, {
-      ExportNamedDeclaration(path) {
-        if (t.isVariableDeclaration(path.node.declaration)) {
-          const nameMap = getVariableDeclarationName(path.node.declaration.declarations);
-          exportNameMap = {
-            ...exportNameMap,
-            ...nameMap
-          };
-        }
-      },
-
-      FunctionDeclaration(path) {
-        if (t.isExportNamedDeclaration(path.parent)) {
-          const name = path.node.id.name;
+    try {
+      traverse(ast, {
+        ExportNamedDeclaration(path) {
+          if (t.isVariableDeclaration(path.node.declaration)) {
+            const nameMap = getVariableDeclarationName(path.node.declaration.declarations);
+            exportNameMap = {
+              ...exportNameMap,
+              ...nameMap
+            };
+          }
+        },
+  
+        FunctionDeclaration(path) {
+          if (t.isExportNamedDeclaration(path.parent)) {
+            const name = path.node.id.name;
+            exportNameMap[name] = name;
+          }
+        },
+  
+        ExportSpecifier(path) {
+          const name = path.node.exported.name;
           exportNameMap[name] = name;
+        },
+  
+        ExportDefaultDeclaration() {
+          const ext = path.extname(filename);
+          const basename = path.basename(filename, ext);
+          exportNameMap.default = basename;
         }
-      },
-
-      ExportSpecifier(path) {
-        const name = path.node.exported.name;
-        exportNameMap[name] = name;
-      },
-
-      ExportDefaultDeclaration() {
-        const ext = path.extname(filename);
-        const basename = path.basename(filename, ext);
-        exportNameMap.default = basename;
-      }
-
-    });
-    return exportNameMap;
+  
+      });
+      return exportNameMap;
+    } catch (error) {
+      throw error
+    }
+    
   }
 
   autoWriteIndex(filepath, isDelete = false) {
@@ -149,11 +175,12 @@ class AutoExport {
             indent_size: 2,
             space_in_empty_paren: true
           }));
+          console.log('\x1b[32m auto export compiled \x1b[0m');
         } else {
           this.replaceContent(`${dirName}/index.js`, filepath, nameMap);
         }
 
-        console.log('\x1b[32m auto export compiled \x1b[0m');
+        
       }
     });
   }
@@ -169,89 +196,94 @@ class AutoExport {
     const self = this;
     const values = Object.values(nameMap).sort();
     let changed = false;
-    traverse(indexAst, {
-      Program(path) {
-        const first = path.get('body.0');
-
-        if (!t.isImportDeclaration(first)) {
-          const specifiers = self.createImportSpecifiers(nameMap);
-          path.unshiftContainer('body', self.createImportDeclaration(specifiers)(relPath));
-          importSetted = true;
-          changed = true;
-          self.cacheExportNameMap[filePath] = values;
-        }
-      },
-
-      ImportDeclaration: {
-        enter(path) {
-          if (!firstImportKey) {
-            firstImportKey = path.key;
-          }
-
-          if (path.node.source.value === relPath && !importSetted) {
-            oldExportNames = path.node.specifiers.reduce((prev, cur) => {
-              if (t.isImportSpecifier(cur) || t.isImportDefaultSpecifier(cur)) {
-                return [...prev, cur.local.name];
-              }
-
-              return prev;
-            }, []);
-            importSetted = true;
-            self.cacheExportNameMap[filePath] = values; // 说明没有新增或删除的export语句
-
-            if (_.isEqual(oldExportNames.sort(), values)) {
-              return false;
-            }
-
-            changed = true;
+    try {
+      traverse(indexAst, {
+        Program(path) {
+          const first = path.get('body.0');
+  
+          if (!t.isImportDeclaration(first)) {
             const specifiers = self.createImportSpecifiers(nameMap);
-
-            if (_.isEmpty(nameMap)) {
-              path.remove();
-            } else {
-              path.replaceWith(self.createImportDeclaration(specifiers)(relPath));
-            }
-          }
-        },
-
-        exit(path) {
-          // 原文件中不存在， 新增import语句
-          const pathKey = path.key;
-          const nextNode = path.getSibling(pathKey + 1);
-
-          if (!importSetted && !_.isEmpty(nameMap) && nextNode && !t.isImportDeclaration(nextNode)) {
-            const specifiers = self.createImportSpecifiers(nameMap);
-            path.insertAfter(self.createImportDeclaration(specifiers)(relPath));
+            path.unshiftContainer('body', self.createImportDeclaration(specifiers)(relPath));
             importSetted = true;
             changed = true;
             self.cacheExportNameMap[filePath] = values;
           }
-        }
-      },
-
-      ExportDefaultDeclaration(path) {
-        if (changed && importSetted && !exportSetted && t.isObjectExpression(path.node.declaration)) {
-          const filtedProperties = path.node.declaration.properties.reduce((prev, cur) => {
-            if (oldExportNames.includes(cur.key.name)) {
-              return prev;
+        },
+  
+        ImportDeclaration: {
+          enter(path) {
+            if (!firstImportKey) {
+              firstImportKey = path.key;
             }
-            return [...prev, cur.key.name];
-          }, []);
-          const allProperties = filtedProperties.concat(Object.values(nameMap));
-          const properties = allProperties.map(item => {
-            const identifier = t.identifier(item);
-            return t.objectProperty(identifier, identifier, false, true);
-          });
-          exportSetted = true;
-          path.replaceWith(t.exportDefaultDeclaration(t.objectExpression(properties)));
+  
+            if (path.node.source.value === relPath && !importSetted) {
+              oldExportNames = path.node.specifiers.reduce((prev, cur) => {
+                if (t.isImportSpecifier(cur) || t.isImportDefaultSpecifier(cur)) {
+                  return [...prev, cur.local.name];
+                }
+  
+                return prev;
+              }, []);
+              importSetted = true;
+              self.cacheExportNameMap[filePath] = values; // 说明没有新增或删除的export语句
+  
+              if (_.isEqual(oldExportNames.sort(), values)) {
+                return false;
+              }
+  
+              changed = true;
+              const specifiers = self.createImportSpecifiers(nameMap);
+  
+              if (_.isEmpty(nameMap)) {
+                path.remove();
+              } else {
+                path.replaceWith(self.createImportDeclaration(specifiers)(relPath));
+              }
+            }
+          },
+  
+          exit(path) {
+            // 原文件中不存在， 新增import语句
+            const pathKey = path.key;
+            const nextNode = path.getSibling(pathKey + 1);
+  
+            if (!importSetted && !_.isEmpty(nameMap) && nextNode && !t.isImportDeclaration(nextNode)) {
+              const specifiers = self.createImportSpecifiers(nameMap);
+              path.insertAfter(self.createImportDeclaration(specifiers)(relPath));
+              importSetted = true;
+              changed = true;
+              self.cacheExportNameMap[filePath] = values;
+            }
+          }
+        },
+  
+        ExportDefaultDeclaration(path) {
+          if (changed && importSetted && !exportSetted && t.isObjectExpression(path.node.declaration)) {
+            const filtedProperties = path.node.declaration.properties.reduce((prev, cur) => {
+              if (oldExportNames.includes(cur.key.name)) {
+                return prev;
+              }
+              return [...prev, cur.key.name];
+            }, []);
+            const allProperties = filtedProperties.concat(Object.values(nameMap));
+            const properties = allProperties.map(item => {
+              const identifier = t.identifier(item);
+              return t.objectProperty(identifier, identifier, false, true);
+            });
+            exportSetted = true;
+            path.replaceWith(t.exportDefaultDeclaration(t.objectExpression(properties)));
+          }
         }
-      }
-
-    });
+  
+      });
+    } catch (error) {
+      throw error
+    }
 
     if (changed) {
       const output = generator(indexAst);
       fs.writeFileSync(indexpath, output.code);
+      console.log('\x1b[32m auto export compiled \x1b[0m');
     }
   }
 
@@ -285,22 +317,40 @@ class AutoExport {
 
   getAst(filename) {
     const content = fs.readFileSync(filename, 'utf8');
-    const ast = parse(content, {
-      sourceType: 'module'
-    });
-    return ast;
+    try {
+      const ast = parse(content, {
+        sourceType: 'module'
+      });
+      return ast;
+    } catch (error) {
+      console.log(error)
+      return null
+    }
   }
 
-  apply() {
-    const optionIgnoredRegStr = this.options.ignored ? this.options.ignored.toString().slice(1, -1) : '';
-    const ignoredStr = optionIgnoredRegStr ? `${optionIgnoredRegStr}|index` : 'index';
-    this.watcher = chokidar.watch(this.options.dir || 'src', {
-      usePolling: true,
-      ignored: new RegExp(ignoredStr)
-    });
+  watchClose() {
+    if (this.watcher) {
+      this.watcher.close()
+    }
+  }
 
-    this.watcher.on('change', _.debounce(this.handleChange.bind(this), 1000))
-      .on('unlink', _.debounce(this.handleDeleteFile.bind(this), 1000));
+  apply(compiler) {
+    const init = this.init.bind(this)
+    const watchClose = this.watchClose.bind(this)
+    if (compiler.hooks) {
+      compiler.hooks.watchRun.tap('AutoExport', () => {
+        this.isWatching = true
+      })
+      compiler.hooks.done.tap('AutoExport', init)
+      compiler.hooks.watchClose.tap('AutoExport', watchClose)
+    } else {
+      compiler.plugin('watchRun', () => {
+        this.isWatching = true
+      })
+      compiler.plugin('done', init)
+      compiler.plugin('watchClose', watchClose)
+    }
+    
   }
 
 }
