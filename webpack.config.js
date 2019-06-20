@@ -3,12 +3,9 @@ const nodeExternals = require('webpack-node-externals')
 const AutoExport = require('./index')
 module.exports = {
   entry: './entry.js',
-  target: 'node',
-  externals: [nodeExternals()],
   output: {
     path: path.resolve(__dirname, 'dist'),
-    filename: 'index.js',
-    libraryTarget: 'commonjs2'
+    filename: 'bundle.js',
   },
   module: {
     rules: [

@@ -1,1 +1,1 @@
-export const AAA = 2
+export const AAA2 = 2

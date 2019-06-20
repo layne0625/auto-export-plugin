@@ -88,9 +88,12 @@ class AutoExport {
   getExportNames(filename) {
     const ast = this.getAst(filename);
     let exportNameMap = {};
+    
     try {
       traverse(ast, {
+        // 主要处理export const a = 1这种写法
         ExportNamedDeclaration(path) {
+          // 考虑到一个文件中可能变量声明语法较多但不一定是export，所以对于`export const a = 1`这种写法，没有采用像其他3种方式一样单独对类型做处理，而是在ExportNamedDeclaration中进一步做判断并处理
           if (t.isVariableDeclaration(path.node.declaration)) {
             const nameMap = getVariableDeclarationName(path.node.declaration.declarations);
             exportNameMap = {
@@ -99,25 +102,24 @@ class AutoExport {
             };
           }
         },
-  
+        // 处理 export function getOne(){}写法
         FunctionDeclaration(path) {
           if (t.isExportNamedDeclaration(path.parent)) {
             const name = path.node.id.name;
             exportNameMap[name] = name;
           }
         },
-  
+        // 处理const A = 1; export { A }这种写法
         ExportSpecifier(path) {
           const name = path.node.exported.name;
           exportNameMap[name] = name;
         },
-  
+        // 处理export default写法， 如果是export default会用文件名作为变量名
         ExportDefaultDeclaration() {
           const ext = path.extname(filename);
           const basename = path.basename(filename, ext);
           exportNameMap.default = basename;
         }
-  
       });
       return exportNameMap;
     } catch (error) {
@@ -186,7 +188,7 @@ class AutoExport {
   }
 
   replaceContent(indexpath, filePath, nameMap) {
-    let importSetted = false; // 当前文件是否存在改动文件的import语句
+    let importEnter = false; // 用于标示当前文件是否存在改动文件的import语句
     let exportSetted = false; // 防止写入index文件中export default语句时再次触发ExportDefaultDeclaration造成死循环
     let changed = false; // 当前改动文件的是否新增或删除了某些export语句
     let oldExportNames = [];
@@ -201,11 +203,13 @@ class AutoExport {
       traverse(indexAst, {
         Program(path) {
           const first = path.get('body.0');
-  
+          // 因为js要求import语句必须写在文件最顶部，
+          // 所以如果index.js文件的第一个语句不是import语句，说明当前文件不存在import
+          // 需要创建import语句并插入文件第一个语句中
           if (!t.isImportDeclaration(first)) {
             const specifiers = self.createImportSpecifiers(nameMap);
             path.unshiftContainer('body', self.createImportDeclaration(specifiers)(relPath));
-            importSetted = true;
+            importEnter = true;
             changed = true;
             self.cacheExportNameMap[filePath] = values;
           }
@@ -222,8 +226,12 @@ class AutoExport {
             if (!firstImportKey) {
               firstImportKey = path.key;
             }
-  
-            if (path.node.source.value === relPath && !importSetted) {
+            // 如果存在改动文件的import语句, 比如改动的是test文件， index中原来存在`import { xx } from './test'`这样的语句，需要将原来import的变量名替换掉
+            
+            if (path.node.source.value === relPath && !importEnter) {
+              // 记录旧的export变量名。这里记录有两个作用, 
+              // 1.拿旧的exportNames去和新的exportNames做对比， 如果相同，则无需修改index.js文件。 
+              // 2.在后面的处理ExportDefaultDeclaration语句时，需要将旧的exportNames中的变量全部删除掉(因为可能某些export语句再原文件中已经删除或者重命名了)， 并且把新的exportName加到export default中去。
               oldExportNames = path.node.specifiers.reduce((prev, cur) => {
                 if (t.isImportSpecifier(cur) || t.isImportDefaultSpecifier(cur)) {
                   return [...prev, cur.local.name];
@@ -231,10 +239,10 @@ class AutoExport {
   
                 return prev;
               }, []);
-              importSetted = true;
+              importEnter = true;
               self.cacheExportNameMap[filePath] = values; 
 
-              // 说明没有新增或删除的export语句
+              // 说明没有新增或删除的export语句, 不对ast做转换操作
               if (_.isEqual(oldExportNames.sort(), values)) {
                 return false;
               }
@@ -251,14 +259,15 @@ class AutoExport {
           },
   
           exit(path) {
-            // 原文件中不存在， 新增import语句
+            // index.js文件中不存在变动文件的导入语句， 需要新增import语句
             const pathKey = path.key;
             const nextNode = path.getSibling(pathKey + 1);
-  
-            if (!importSetted && !_.isEmpty(nameMap) && nextNode && !t.isImportDeclaration(nextNode)) {
+            // 当每个ImportDeclaration执行完enter之后， 如果没有进入enter内部逻辑说明，说明当前node不是改动文件的import语句, 所以判断下一条node是不是import语句， 如果是，继续进入下一条import语句的enter，继续进行；
+            // 如果下一条node不是import语句，则说明当前index.js文件中不存在变动文件的导入语句， 在其后面插入import语句
+            if (!importEnter && !_.isEmpty(nameMap) && nextNode && !t.isImportDeclaration(nextNode)) {
               const specifiers = self.createImportSpecifiers(nameMap);
               path.insertAfter(self.createImportDeclaration(specifiers)(relPath));
-              importSetted = true;
+              importEnter = true;
               changed = true;
               self.cacheExportNameMap[filePath] = values;
             }

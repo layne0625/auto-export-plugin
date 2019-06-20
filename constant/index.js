@@ -1,7 +1,7 @@
-import { AAA } from "./test";
 import test3, { AAA1 } from "./test3";
+import { AAA2 } from "./test";
 export default {
-  AAA,
   test3,
-  AAA1
+  AAA1,
+  AAA2
 };
