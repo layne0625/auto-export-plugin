@@ -1,3 +1,4 @@
+![](https://github.com/layne0625/auto-export-plugin/blob/master/screenshot/pic.gif)
 ## Introduction
 监听文件改动或文件删除时，自动收集被改动文件中的export语句， 在文件同级目录的index.js文件中自动引入， 同时写入index文件的export default语句中。
 *注：无需手动创建index.js*
