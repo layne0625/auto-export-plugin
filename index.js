@@ -186,8 +186,9 @@ class AutoExport {
   }
 
   replaceContent(indexpath, filePath, nameMap) {
-    let importSetted = false;
-    let exportSetted = false;
+    let importSetted = false; // 当前文件是否存在改动文件的import语句
+    let exportSetted = false; // 防止写入index文件中export default语句时再次触发ExportDefaultDeclaration造成死循环
+    let changed = false; // 当前改动文件的是否新增或删除了某些export语句
     let oldExportNames = [];
     let firstImportKey = null;
     const fileName = getFileName(filePath);
@@ -195,7 +196,7 @@ class AutoExport {
     const indexAst = this.getAst(indexpath);
     const self = this;
     const values = Object.values(nameMap).sort();
-    let changed = false;
+    
     try {
       traverse(indexAst, {
         Program(path) {
@@ -207,6 +208,12 @@ class AutoExport {
             importSetted = true;
             changed = true;
             self.cacheExportNameMap[filePath] = values;
+          }
+          const bodys = path.get('body')
+          if (!bodys.some(item => t.isExportDefaultDeclaration(item))) {
+            exportSetted = true
+            changed = true
+            path.pushContainer('body', self.createExportDefaultDeclaration(Object.values(nameMap)))
           }
         },
   
@@ -225,8 +232,9 @@ class AutoExport {
                 return prev;
               }, []);
               importSetted = true;
-              self.cacheExportNameMap[filePath] = values; // 说明没有新增或删除的export语句
-  
+              self.cacheExportNameMap[filePath] = values; 
+
+              // 说明没有新增或删除的export语句
               if (_.isEqual(oldExportNames.sort(), values)) {
                 return false;
               }
@@ -258,7 +266,8 @@ class AutoExport {
         },
   
         ExportDefaultDeclaration(path) {
-          if (changed && importSetted && !exportSetted && t.isObjectExpression(path.node.declaration)) {
+          // 写入export default时会再次访问ExportDefaultDeclaration, 加exportSetted判断防止造成死循环
+          if (changed && !exportSetted && t.isObjectExpression(path.node.declaration)) {
             const filtedProperties = path.node.declaration.properties.reduce((prev, cur) => {
               if (oldExportNames.includes(cur.key.name)) {
                 return prev;
@@ -266,12 +275,8 @@ class AutoExport {
               return [...prev, cur.key.name];
             }, []);
             const allProperties = filtedProperties.concat(Object.values(nameMap));
-            const properties = allProperties.map(item => {
-              const identifier = t.identifier(item);
-              return t.objectProperty(identifier, identifier, false, true);
-            });
             exportSetted = true;
-            path.replaceWith(t.exportDefaultDeclaration(t.objectExpression(properties)));
+            path.replaceWith(self.createExportDefaultDeclaration(allProperties));
           }
         }
   
@@ -285,6 +290,14 @@ class AutoExport {
       fs.writeFileSync(indexpath, output.code);
       console.log('\x1b[32m auto export compiled \x1b[0m');
     }
+  }
+
+  createExportDefaultDeclaration(exportsArr) {
+    const properties = exportsArr.map(item => {
+      const identifier = t.identifier(item);
+      return t.objectProperty(identifier, identifier, false, true);
+    });
+    return t.exportDefaultDeclaration(t.objectExpression(properties))
   }
 
   createImportSpecifiers(keyMap) {
