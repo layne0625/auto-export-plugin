@@ -1,14 +1,16 @@
 ![](https://github.com/layne0625/auto-export-plugin/blob/master/screenshot/pic.gif)
 ## Introduction
-监听文件改动或文件删除时，自动收集被改动文件中的export语句， 在文件同级目录的index.js文件中自动引入， 同时写入index文件的export default语句中。
-*注：无需手动创建index.js*
+文件改动或删除时，自动收集文件中的export语句， 并将其导出语句写入index.js文件中。
+
+- 如果是非index.js文件改动会自动写入同级目录index.js文件中
+- 如果是index.js文件改动会自动写入上层目录的index.js文件中(*如果不需要此特性，可以在ignored中写入/index/忽略*)
+
+
 ## Install
 ```
 npm i auto-export-plugin -D
 ```
-```
-yarn add auto-export-plugin -D
-```
+
 
 ## Usage
 ```javascript
@@ -22,7 +24,7 @@ module.exports = {
     ...
     new AutoExport({
       dir: ['src', 'constant'],
-      ignored: /tableComponent|service/
+      ignored: /someFileName|someDirName/
     })
   ]
 }
@@ -30,5 +32,6 @@ module.exports = {
 ```
 
 ## Options
-- dir(String/Array):  需要监听的目录名,  默认为src目录
-- ignored(RegExp): 过滤掉的文件名、目录名
+- dir (string/array):  需要监听的目录名,  默认为src目录
+- ignored (regexp): 过滤掉的文件名、目录名
+

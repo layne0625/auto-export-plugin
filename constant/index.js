@@ -1,7 +1,5 @@
-import test3, { AAA1 } from "./test3";
-import { AAA2 } from "./test";
+import child, { D1 } from "./child";
 export default {
-  test3,
-  AAA1,
-  AAA2
+  child,
+  D1
 };
