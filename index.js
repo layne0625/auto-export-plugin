@@ -98,6 +98,7 @@ class AutoExport {
     if (watchDirs.includes(dirName)) {
       // 如果watchDirs包含当前变化文件的目录名，则不继续向上层写入。
       // 比如this.options.dir = ['constant', 'src'], 变化的文件为constant/index.js， 则不再向constant的上级目录写入
+      console.log('\x1b[32m auto export compiled \x1b[0m');
       return false;
     } else {
       this.handleWriteIndex(changedFilePath, isDelete, true);
@@ -206,181 +207,108 @@ class AutoExport {
         return false;
       }
 
-      const defaultImport = nameMap.default;
-      const exportNames = Object.keys(nameMap).reduce((prev, cur) => {
+      const defaultExport = nameMap.default;
+      const noDefaultExportNames = Object.keys(nameMap).reduce((prev, cur) => {
         return cur === 'default' ? prev : [...prev, cur];
       }, []);
-      let importExpression = `import { ${exportNames.join(', ')} } from './${changedFileName}'`;
+      let exportExpression = `export { ${noDefaultExportNames.join(', ')} } from './${changedFileName}'`;
 
-      if (defaultImport) {
-        const otherImport = _.isEmpty(exportNames) ? '' : `, { ${exportNames.join(', ')} }`;
-        importExpression = `import ${defaultImport}${otherImport} from './${changedFileName}'`;
+      if (defaultExport) {
+        const others = _.isEmpty(noDefaultExportNames) ? '' : `, ${noDefaultExportNames.join(', ')}`
+        exportExpression = `export { default as ${defaultExport}${others}} from './${changedFileName}'`;
       }
-
-      const values = Object.values(nameMap);
-      const data = `${importExpression}\nexport default {\n  ${values.join(', \n  ')}\n}`;
-      fs.writeFileSync(writeFilePath, data);
+      fs.writeFileSync(writeFilePath, `${exportExpression}\n`);
       console.log('\x1b[32m auto export compiled \x1b[0m');
     } else {
       this.replaceContent(writeFilePath, changedFileName, nameMap);
     }
   } 
 
-  replaceContent(indexpath, changedFileName, nameMap) {
-    let importEnter = false; // 用于标示当前文件是否存在改动文件的import语句
-
-    let exportSetted = false; // 防止写入index文件中export default语句时再次触发ExportDefaultDeclaration造成死循环
-
-    let changed = false; // 当前改动文件的是否新增或删除了某些export语句
-
-    let oldExportNames = [];
-    let firstImportKey = null;
-    // const fileName = getFileName(filePath);
-    const relPath = `./${changedFileName}`;
-    const indexAst = this.getAst(indexpath);
-    const self = this;
-    const values = Object.values(nameMap).sort();
-
-    try {
-      traverse(indexAst, {
-        Program(path) {
-          const first = path.get('body.0'); // 因为js要求import语句必须写在文件最顶部，
-          // 所以如果index.js文件的第一个语句不是import语句，说明当前文件不存在import
-          // 需要创建import语句并插入文件第一个语句中
-
-          if (!t.isImportDeclaration(first)) {
-            const specifiers = self.createImportSpecifiers(nameMap);
-            path.unshiftContainer('body', self.createImportDeclaration(specifiers)(relPath));
-            importEnter = true;
-            changed = true;
-            // self.cacheExportNameMap[filePath] = values;
+  replaceContent(replaceFilePath, changedFileName, nameMap) {
+    const ast = this.getAst(replaceFilePath);
+    let existedExport = false
+    let changed = false
+    const relPath = `./${changedFileName}`
+    let oldImportNames = []
+    const exportExpression = t.exportNamedDeclaration(null, this.createExportDeclatationSpecifiers(nameMap), t.stringLiteral(relPath))
+    traverse(ast, {
+      Program: {
+        exit(path) {
+          if (!existedExport) {
+            changed = true
+            path.pushContainer('body', exportExpression)
           }
-
-          const bodys = path.get('body');
-
-          if (!bodys.some(item => t.isExportDefaultDeclaration(item))) {
-            exportSetted = true;
-            changed = true;
-            path.pushContainer('body', self.createExportDefaultDeclaration(Object.values(nameMap)));
-          }
-        },
-
-        ImportDeclaration: {
-          enter(path) {
-            if (!firstImportKey) {
-              firstImportKey = path.key;
-            } // 如果存在改动文件的import语句, 比如改动的是test文件， index中原来存在`import { xx } from './test'`这样的语句，需要将原来import的变量名替换掉
-
-
-            if (path.node.source.value === relPath && !importEnter) {
-              // 记录旧的export变量名。这里记录有两个作用, 
-              // 1.拿旧的exportNames去和新的exportNames做对比， 如果相同，则无需修改index.js文件。 
-              // 2.在后面的处理ExportDefaultDeclaration语句时，需要将旧的exportNames中的变量全部删除掉(因为可能某些export语句再原文件中已经删除或者重命名了)， 并且把新的exportName加到export default中去。
-              oldExportNames = path.node.specifiers.reduce((prev, cur) => {
-                if (t.isImportSpecifier(cur) || t.isImportDefaultSpecifier(cur)) {
-                  return [...prev, cur.local.name];
-                }
-
-                return prev;
-              }, []);
-              importEnter = true;
-              // 正确情况下，在isRewriteable函数中判断即可；但是文件第一次更新时, this.cacheExportNameMap有可能不存在对应的值，所以多加一次。
-              if (_.isEqual(oldExportNames.sort(), values)) {
-                return false;
-              }
-
-              changed = true;
-              const specifiers = self.createImportSpecifiers(nameMap);
-
-              if (_.isEmpty(nameMap)) {
-                path.remove();
-              } else {
-                path.replaceWith(self.createImportDeclaration(specifiers)(relPath));
-              }
+        }
+      },
+      ImportDeclaration(path) {
+        if (path.node.source.value === relPath) {
+          // 如果存在import xxx, { xxx } from relPath, 把旧的变量收集起来并且检测export语句把这些变量删除。 同时新增export { xx } from relPath
+          oldImportNames = path.node.specifiers.reduce((prev, cur) => {
+            if (t.isImportSpecifier(cur) || t.isImportDefaultSpecifier(cur)) {
+              return [...prev, cur.local.name];
             }
-          },
-          exit(path) {
-            // index.js文件中不存在变动文件的导入语句， 需要新增import语句
-            const pathKey = path.key;
-            const nextNode = path.getSibling(pathKey + 1); // 当每个ImportDeclaration执行完enter之后， 如果没有进入enter内部逻辑说明，说明当前node不是改动文件的import语句, 所以判断下一条node是不是import语句， 如果是，继续进入下一条import语句的enter，继续进行；
-            // 如果下一条node不是import语句，则说明当前index.js文件中不存在变动文件的导入语句， 在其后面插入import语句
-
-            if (!importEnter && !_.isEmpty(nameMap) && nextNode && !t.isImportDeclaration(nextNode)) {
-              const specifiers = self.createImportSpecifiers(nameMap);
-              path.insertAfter(self.createImportDeclaration(specifiers)(relPath));
-              importEnter = true;
-              changed = true;
-              // self.cacheExportNameMap[filePath] = values;
-            }
+            return prev;
+          }, []);
+          changed = true
+          path.remove()
+        }
+      },
+      ExportNamedDeclaration(path) {
+        if (!existedExport && path.node.source && path.node.source.value === relPath) {
+          existedExport = true
+          changed = true
+          if (_.isEmpty(nameMap)) {
+            path.remove()
+          } else {
+            path.replaceWith(exportExpression)
           }
-        },
-
-        ExportDefaultDeclaration(path) {
-          // 写入export default时会再次访问ExportDefaultDeclaration, 加exportSetted判断防止造成死循环
-          if (changed && !exportSetted && t.isObjectExpression(path.node.declaration)) {
-            exportSetted = true;
-            const filtedProperties = path.node.declaration.properties.reduce((prev, cur) => {
-              if (oldExportNames.includes(cur.key.name)) {
-                return prev;
-              }
-
-              return [...prev, cur.key.name];
-            }, []);
-            const allProperties = filtedProperties.concat(Object.values(nameMap));
-            if (_.isEmpty(allProperties)) {
+        }
+      },
+      // 移除oldImportNames
+      ExportSpecifier(path) {
+        if (!_.isEmpty(oldImportNames) && oldImportNames.includes(path.node.exported.name)) {
+          oldImportNames = oldImportNames.filter(item => item !== path.node.exported.name)
+          path.remove()
+          if (_.isEmpty(path.parent.specifiers)) {
+            path.parentPath.remove()
+          }
+        }
+      },
+      // 移除oldImportNames
+      ExportDefaultDeclaration(path) {
+        if (!_.isEmpty(oldImportNames) && t.isObjectExpression(path.node.declaration)) {
+          const properties = []
+          let isChange = false
+          path.node.declaration.properties.forEach(item => {
+            const index = oldImportNames.indexOf(item.key.name)
+            if (index > -1) {
+              oldImportNames.splice(index, 1)
+              isChange = true
+            } else {
+              properties.push(item)
+            }
+          })
+          if (isChange) {
+            if (_.isEmpty(properties)) {
               path.remove()
             } else {
-              path.replaceWith(self.createExportDefaultDeclaration(allProperties));
+              path.replaceWith(t.exportDefaultDeclaration(t.objectExpression(properties)))
             }
           }
         }
-
-      });
-    } catch (error) {
-      throw error;
-    }
-
+      }
+    })
     if (changed) {
-      const output = generator(indexAst);
-      fs.writeFileSync(indexpath, output.code);
+      const output = generator(ast);
+      fs.writeFileSync(replaceFilePath, output.code);
       console.log('\x1b[32m auto export compiled \x1b[0m');
     }
   }
 
-  createExportDefaultDeclaration(exportsArr) {
-    const properties = exportsArr.map(item => {
-      const identifier = t.identifier(item);
-      return t.objectProperty(identifier, identifier, false, true);
-    });
-    return t.exportDefaultDeclaration(t.objectExpression(properties));
-  }
-
-  createImportSpecifiers(keyMap) {
-    return Object.keys(keyMap).reduce((prev, cur) => {
-      const identifier = t.identifier(cur);
-
-      if (cur === 'default') {
-        const defaultId = t.identifier(keyMap.default);
-        prev.unshift(t.importDefaultSpecifier(defaultId));
-        return prev;
-      }
-
-      return [...prev, t.importSpecifier(identifier, identifier)];
-    }, []);
-  }
-
-  createImportDeclaration(specifiers) {
-    if (!Array.isArray(specifiers)) {
-      throw new Error('specifiers must is array');
-    }
-
-    return pathname => {
-      if (!pathname.startsWith('./')) {
-        pathname = `./${pathname}`;
-      }
-
-      return t.importDeclaration(specifiers, t.stringLiteral(pathname));
-    };
+  createExportDeclatationSpecifiers(nameMap) {
+    return Object.keys(nameMap).map(key => {
+      return t.exportSpecifier(t.identifier(key), t.identifier(nameMap[key]))
+    })
   }
 
   getAst(filename) {
@@ -423,5 +351,8 @@ class AutoExport {
   }
 
 }
+
+// const a = new AutoExport()
+// console.log(JSON.stringify(a.getAst(path.resolve('./constant/index.js'))))
 
 module.exports = AutoExport;

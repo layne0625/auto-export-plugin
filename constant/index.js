@@ -1,5 +1,1 @@
-import child, { D1 } from "./child";
-export default {
-  child,
-  D1
-};
+export { A, default as test } from "./test";
