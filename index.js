@@ -258,6 +258,7 @@ class AutoExport {
           existedExport = true
           changed = true
           if (_.isEmpty(nameMap)) {
+            // 说明没有变量导出或者文件删除， 所以删除该条语句
             path.remove()
           } else {
             path.replaceWith(exportExpression)
@@ -269,12 +270,13 @@ class AutoExport {
         if (!_.isEmpty(oldImportNames) && oldImportNames.includes(path.node.exported.name)) {
           oldImportNames = oldImportNames.filter(item => item !== path.node.exported.name)
           path.remove()
+          //进一步判断是否还有其他语句导出， 如果没有移除该条语句， 防止export {}导出空对象
           if (_.isEmpty(path.parent.specifiers)) {
             path.parentPath.remove()
           }
         }
       },
-      // 移除oldImportNames
+      //  针对export defalut { A, B }的写法，移除oldImportNames
       ExportDefaultDeclaration(path) {
         if (!_.isEmpty(oldImportNames) && t.isObjectExpression(path.node.declaration)) {
           const properties = []
@@ -288,6 +290,7 @@ class AutoExport {
               properties.push(item)
             }
           })
+          // 进一步判断export default语句是否还有其他导出变量， 如果没有把export default语句删除，防止造成export default {}
           if (isChange) {
             if (_.isEmpty(properties)) {
               path.remove()
@@ -351,8 +354,5 @@ class AutoExport {
   }
 
 }
-
-// const a = new AutoExport()
-// console.log(JSON.stringify(a.getAst(path.resolve('./constant/index.js'))))
 
 module.exports = AutoExport;
