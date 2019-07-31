@@ -27,7 +27,7 @@
     "@babel/traverse": "^7.4.5",
     "babel-types": "^6.26.0",
     "chokidar": "^3.0.1",
-    "lodash": "^4.17.11"
+    "lodash": "^4.17.15"
   },
   "devDependencies": {
     "@babel/core": "^7.4.5",
